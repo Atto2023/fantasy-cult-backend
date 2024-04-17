@@ -1,1 +1,1 @@
-# fantasy-cult-backend
+# fastapi-boilerplate

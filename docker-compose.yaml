@@ -1,0 +1,16 @@
+version: "3.7"
+services:
+  app:
+    image: atto2023/fantasy-staging:latest
+    container_name: fantasy-cult
+    restart: unless-stopped
+  nginx:
+    image: nginx:latest
+    container_name: nginx-proxy
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
+    ports:
+      - "80:80"
+    depends_on:
+      - app
+    restart: unless-stopped

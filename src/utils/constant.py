@@ -21,7 +21,7 @@ class UserConstant():
     
 
     SUCCESS_OTP_SENDED = "Otp Sended to mobile and email"
-    SUCCESS_USER_REGISTRATION = 'Registration Successful'
+    SUCCESS_USER_REGISTRATION = "Logged In Successfully!!"
     SUCCESS_FETCH ="Fetch User Profile Success on Home Page"
     OTP_REQUIERED = 'Please provide both Email OTP and Mobile OTP ID'
     

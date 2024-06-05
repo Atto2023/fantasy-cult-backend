@@ -195,7 +195,7 @@ async def razorpay_payout(amount, user_data):
 
         headers = {
             'Content-Type': 'application/json',
-            'Authorization': 'Basic cnpwX3Rlc3RfQzg3eGpnZzBqcXJoNE06Tm5XSmdBa1VSd1FhMHFqWUd3RHhlQWlI'
+            'Authorization': 'Basic cnpwX2xpdmVfRHBXNnkycFVVRGtkd0Y6cTc3Vmo5d0NxNThxMWMwaWhYdHQzUkFD'
         }
 
         response = requests.request("POST", url, headers=headers, data=payload)

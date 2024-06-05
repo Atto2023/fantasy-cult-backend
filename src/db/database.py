@@ -13,18 +13,18 @@ class AsyncDatabaseSession:
         self._session = None
         self._engine = None
     def __getattr__(self, name):
-            return getattr(self._session, name)
+        return getattr(self._session, name)
     def init(self):
-            self._engine = create_async_engine(
-                Config.DB_CONFIG,
-                future=True,
-                echo=True,
-                pool_size=20,
-                max_overflow=10
-            )
-            self._session = sessionmaker(
-                self._engine, expire_on_commit=False, class_=AsyncSession
-            )()
+        self._engine = create_async_engine(
+            Config.DB_CONFIG,
+            future=True,
+            echo=True,
+            pool_size=20,
+            max_overflow=10
+        )
+        self._session = sessionmaker(
+            self._engine, expire_on_commit=False, class_=AsyncSession
+        )()
     async def create_all(self):
         self._engine.begin
             # async with self._engine.begin() as conn:

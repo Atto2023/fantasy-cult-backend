@@ -215,3 +215,7 @@ async def each_player_score(token: Request, user_draft_id: UUID4, user_id: UUID4
         token = token,
         authorize = authorize
     )
+
+@router.get("/change_time")
+async def change_times():
+    return await DraftController.change_times()

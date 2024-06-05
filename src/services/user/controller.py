@@ -32,7 +32,7 @@ from src.utils.helper_functions import (
     S3Config,
     send_verification_mail)
 
-from src.utils.common_html import verify_email_html
+from src.utils.common_html import verify_email_html, money_deposited_html, money_bonus_html, money_withdraw_html
 
 from src.utils.response import (
     SuccessResponseSerializer,
@@ -329,6 +329,7 @@ class UserProfileController:
         # try:
         await auth_check(token=token,authorize=authorize)
         user_id = authorize.get_jwt_subject()
+        time.sleep(0.5)
         user = await UserProfileSchema.get_user_data(
             user_id = user_id,
             with_base = True
@@ -523,6 +524,11 @@ class UserProfileController:
             data = notification_data,
             notification_id = notification.notification_id
         )
+        notification_data["body"] = money_deposited_html.format(
+            amount = added_amount,
+            android_link = "#",
+            ios_link = "#"
+        )
         await send_mail_notification(
             notification_data = notification_data,
             email = user_data.email
@@ -541,6 +547,11 @@ class UserProfileController:
             user_id = user_id,
             data = notification_data,
             notification_id = notification.notification_id
+        )
+        notification_data["body"] = money_bonus_html.format(
+            bonus_amount = cash_bonus_amount,
+            android_link = "#",
+            ios_link = "#"
         )
         await send_mail_notification(
             notification_data = notification_data,
@@ -624,6 +635,12 @@ class UserProfileController:
                 user_id = user_id,
                 data = notification_data,
                 notification_id = notification.notification_id
+            )
+            notification_data["body"] = money_withdraw_html.format(
+                amount = amount,
+                tds_amount = tds_value,
+                android_link = "#",
+                ios_link = "#"
             )
             await send_mail_notification(
                 notification_data = notification_data,

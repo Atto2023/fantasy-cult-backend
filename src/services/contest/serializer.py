@@ -127,9 +127,6 @@ class PlayerDetailResponseSerializer(BaseModel):
     batting_stats: dict
     bowling_stats: dict
 
-class TeamResponseSerializer(BaseModel):
-    cricket_team_id: Optional[UUID4]
-    name: Optional[constr()]
 
 class SquadResponseSerializer(BaseModel):
     user_id: UUID4
@@ -224,6 +221,7 @@ class LeaderboardResponseSerializer(BaseModel):
     logged_in_user_captain: Optional[UUID4] = None
     logged_in_user_vice_captain: Optional[UUID4] = None
     member_data: Optional[List[MemberLeaderboardResponseSerializer]] = []
+    text_show: Optional[constr()] = ""
 
 class DraftDetailResponseSerializer(BaseModel):
     entry_amount: confloat(ge = 0)

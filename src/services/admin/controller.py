@@ -1,7 +1,11 @@
-from datetime import datetime, timedelta
-from fastapi import status
-from pydantic import UUID4
+from datetime import datetime, timedelta, date
+from fastapi import status, File, Response
+from pydantic import UUID4, EmailStr
+import uuid
+import time
 from src.db.models import DraftForEnum
+from src.config.config import Config
+from fastapi.responses import FileResponse
 from src.services.admin.serializer import(
     AdminCreateDraftRequestSerializer,
     AdminDraftDetailResponseSerializer, 
@@ -22,10 +26,11 @@ from src.services.admin.serializer import(
     CricketTeamRequestSerialzier, 
     HomeScreenResponseSerializer, 
     HomeScreeenRequestSerializer,
+    AdminAddAmountRequestSerializer
 )
 from src.services.contest.schema import DraftSchema
 from src.services.notification.schema import NotificationSchema
-from src.services.user.controller import UserController
+from src.services.user.controller import UserController, UserProfileController
 from src.services.user.schema import UserProfileSchema, UserSchema
 from src.services.user.serializer import (
     BalanceResponseSerializer,
@@ -68,6 +73,7 @@ from src.services.cricket.serializer import (
     SeriesListResponseSerializer,
 )
 from src.services.contest.serializer import PlayersResponseSerializer
+from src.utils.common_html import money_won_html, money_lost_html, money_deposited_html, money_bonus_html
 
 class AdminController():
 
@@ -119,15 +125,23 @@ class AdminController():
         )
 
     @classmethod
-    async def user_list(cls, token, authorize, limit, offset,search_text:str=None):
+    async def user_list(cls, token, authorize, limit, offset, email: EmailStr = None, search_text:str=None,  is_export: bool = True):
         await auth_check(authorize=authorize, token=token)
         admin_user_id = authorize.get_jwt_subject()
+
+        if is_export:  
+            csv_data = await ExportCSVController.user_list_csv(
+                email = email,
+                search_text = search_text
+            )
+            return FileResponse(path=csv_data.data)
 
         user_list = await AdminSchema.user_list(
             limit = limit,
             offset = offset,
             search_text=search_text
         )
+
         data = [UserProfileResponseSerializer(**(i._asdict())) for i in user_list]
         serializer = SuccessResponseSerializer(
             message = "User List",
@@ -249,6 +263,7 @@ class AdminController():
     async def get_transaction(cls, user_id, token, authorize, limit, offset, search_text:str=None):
         await auth_check(authorize=authorize, token=token)
         admin_user_id = authorize.get_jwt_subject()
+
         user_transaction = await UserProfileSchema.get_user_transaction(
             user_id = user_id,
             limit = limit,
@@ -413,12 +428,12 @@ class AdminController():
             )
         else:
             serializer = ErrorResponseSerializer(
-                message = "No draft found"
+                message = "No draft found",
+                data = []
             )
             return response_structure(
                 serializer = serializer,
-                status_code = status.HTTP_400_BAD_REQUEST,
-                data = []
+                status_code = status.HTTP_400_BAD_REQUEST
             )
 
 
@@ -426,6 +441,25 @@ class AdminController():
     async def create_draft(cls, token, authorize, request: AdminCreateDraftRequestSerializer):
         await auth_check(token=token,authorize=authorize)
         admin_user = authorize.get_jwt_subject()
+
+        if request.top_picks > request.number_of_round:
+            serializer = ErrorResponseSerializer(
+                message = f"Top Picks must be less than  number of rounds"
+            )
+            return response_structure(
+                serializer = serializer,
+                status_code = status.HTTP_400_BAD_REQUEST
+            )
+
+        total_choice_member = request.player_choice.bat + request.player_choice.bowl + request.player_choice.wk + request.player_choice.all
+        if total_choice_member > request.player_choice.each_member_player:
+            serializer = ErrorResponseSerializer(
+                message = f"Please check the Player Choice"
+            )
+            return response_structure(
+                serializer = serializer,
+                status_code = status.HTTP_400_BAD_REQUEST
+            )
 
         if request.draft_for == DraftForEnum.MATCH:
             match_data = await DraftSchema.match_series_team(
@@ -451,6 +485,19 @@ class AdminController():
                     serializer = serializer,
                     status_code = status.HTTP_400_BAD_REQUEST
                 )
+
+        user_draft = await DraftSchema.get_draft_data(
+            invitation_code = request.invitation_code
+        )
+        if user_draft:
+            serializer = ErrorResponseSerializer(
+                message = f"This draft is already created"
+            )
+            return response_structure(
+                serializer = serializer,
+                status_code = status.HTTP_400_BAD_REQUEST
+            )
+
         draft = await AdminSchema.admin_create_draft(
             request = request,
             user_id = admin_user
@@ -698,19 +745,27 @@ class AdminController():
         )
 
     @classmethod
-    async def get_gst_individual(cls, token, authorize, month, year):
+    async def get_gst_individual(cls, token, authorize, month, year, email: EmailStr = None, is_export: bool = True ):
         await auth_check(token=token,authorize=authorize)
         admin_user = authorize.get_jwt_subject()
 
-        tds_data = await AdminSchema.gst_calculation_individual_list(
+        if is_export:  
+            csv_data = await ExportCSVController.export_gst_list(
+                year = year,
+                month = month,
+                email = email
+            )
+            return FileResponse(path=csv_data.data)
+
+        gst_data = await AdminSchema.gst_calculation_individual_list(
             month = month,
             year = year
         )
-        tds_data = [GstIndividualCalculationResponseSerializer(**(i._asdict())) for i in tds_data]
+        gst_data = [GstIndividualCalculationResponseSerializer(**(i._asdict())) for i in gst_data]
         serializer = SuccessResponseSerializer(
             message = "Gst Individual List",
             status = status.HTTP_200_OK,
-            data = tds_data
+            data = gst_data
         )
         return response_structure(
             serializer = serializer,
@@ -802,9 +857,19 @@ class AdminController():
         )
 
     @classmethod
-    async def get_all_transaction(cls, token, authorize, limit, offset, search_text:str=None, start_date=None, end_date=None):
+    async def get_all_transaction(cls, token, authorize, limit, offset, search_text:str=None, start_date=None, end_date=None, email: EmailStr = None, is_export: bool = True):
         await auth_check(authorize=authorize, token=token)
         admin_user_id = authorize.get_jwt_subject()
+
+        if is_export:  
+            csv_data = await ExportCSVController.export_transaction_list(
+                search_text = search_text,
+                start_date = start_date,
+                end_date = end_date,
+                email = email
+            )
+            return FileResponse(path=csv_data.data)
+
         user_transaction = await UserProfileSchema.get_all_transaction(
             limit = limit,
             offset = offset,
@@ -988,9 +1053,17 @@ class AdminController():
         )
     
     @classmethod
-    async def get_tds_individual(cls, token, authorize, month, year):
+    async def get_tds_individual(cls, token, authorize, month, year, email: EmailStr = None, is_export: bool = True ):
         await auth_check(token=token,authorize=authorize)
         admin_user = authorize.get_jwt_subject()
+
+        if is_export:  
+            csv_data = await ExportCSVController.export_tds_list(
+                year = year,
+                month = month,
+                email = email
+            )
+            return FileResponse(path=csv_data.data)
 
         tds_data = await AdminSchema.tds_calculation_individual_list(
             month = month,
@@ -1128,10 +1201,36 @@ class AdminController():
             start_date = start_date,
             end_date = end_date
         )
-        data = [DraftResponseSerialzier(**(i._asdict())) for i in draft_list]
+        result = []
+        for i in draft_list:
+            draft_data = DraftResponseSerialzier(**(i._asdict()))
+            if draft_data.draft_for == DraftForEnum.MATCH:
+                data = await CricketMatchSchema.get_matches(
+                    match_id = draft_data.draft_match_series_id,
+                    limit=10,
+                    offset=1
+                )
+            else: # this is for series
+                data = await CricketMatchSchema.get_series(
+                    series_id = draft_data.draft_match_series_id
+                )
+            if not data.series_use_name:
+                draft_data.series_name = data.series_fc_name
+            else:
+                draft_data.series_name = data.series_name
+            if draft_data.draft_for == DraftForEnum.MATCH:
+                if not data.use_short_name_a:
+                    draft_data.team_short_name_a = data.fc_short_name_a
+                else:
+                    draft_data.team_short_name_a = data.team_short_name_a
+                if not data.use_short_name_b:
+                    draft_data.team_short_name_b = data.fc_short_name_b
+                else:
+                    draft_data.team_short_name_b = data.team_short_name_b
+            result.append(draft_data)
         serializer = SuccessResponseSerializer(
             message = "Draft List",
-            data = data
+            data = result
         )
         return response_structure(
             serializer = serializer,
@@ -1209,6 +1308,12 @@ class AdminController():
                                     data = notification_data,
                                     notification_id = notification.notification_id
                                 )
+                                notification_data["body"] = money_won_html.format(
+                                    amount = new_price[member + 1],
+                                    draft_name = i.league_name,
+                                    android_link = "#",
+                                    ios_link = "#"
+                                )
                                 await send_mail_notification(
                                     notification_data = notification_data,
                                     email = user_data.email
@@ -1237,6 +1342,10 @@ class AdminController():
                                     user_id = contest_member[member].user_id,
                                     data = notification_data,
                                     notification_id = notification.notification_id
+                                )
+                                notification_data["body"] = money_lost_html.format(
+                                    android_link = "#",
+                                    ios_link = "#"
                                 )
                                 await send_mail_notification(
                                     notification_data = notification_data,
@@ -1360,28 +1469,227 @@ class AdminController():
                 serializer = serializer,
                 status_code = status.HTTP_200_OK
             )
+        
+    @classmethod
+    async def add_amount(cls, request: AdminAddAmountRequestSerializer):
+
+        if request.token != "d1yt0o8h0l":
+            serializer = ErrorResponseSerializer(
+                message = "Token Not Valid"
+            )
+            return response_structure(
+                serializer = serializer,
+                status_code = serializer.status_code
+            )
+
+        user_data = await UserProfileSchema.get_user_data(
+            mobile = request.mobile,
+            with_base = True
+        )
+    
+        if not user_data:
+            serializer = ErrorResponseSerializer(
+                status_code = status.HTTP_404_NOT_FOUND,
+                message = "User not found"
+            )
+            return response_structure(
+                serializer=serializer,
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+
+        user_id = user_data.user_id
+            
+
+        gst_list = await AdminSchema.get_gst()
+
+        received_amount = round(request.amount, 2)
+        gst_percentage = (gst_list[0].percentage) / 100
+        added_amount = round(received_amount / (1 + gst_percentage), 0)
+        cash_bonus_amount = received_amount - added_amount
+
+        time.sleep(1)
+        await UserProfileSchema.add_update_amount(
+            added_amount=added_amount,
+            cash_bonus_amount=cash_bonus_amount,
+            user_id=user_id
+        )
+        ########### Add Money Notification and Mail for added amount
+        notification_data = {
+            "title": "Money Deposited",
+            "body": NotificationConstant.MONEY_DEPOSITED.format(added_amount)
+        }
+        notification = await NotificationSchema.add_notification(
+            user_id = user_id,
+            message = notification_data["body"]
+        )
+        await send_notification(
+            user_id = user_id,
+            data = notification_data,
+            notification_id = notification.notification_id
+        )
+        notification_data["body"] = money_deposited_html.format(
+            amount = added_amount,
+            android_link = "#",
+            ios_link = "#"
+        )
+        await send_mail_notification(
+            notification_data = notification_data,
+            email = user_data.email
+        )
+        ##############
+        ########### Add Money Notification and Mail for cash bonus amount
+        notification_data = {
+            "title": "Money Bonus",
+            "body": NotificationConstant.MONEY_BONUS.format(cash_bonus_amount)
+        }
+        notification = await NotificationSchema.add_notification(
+            user_id = user_id,
+            message = notification_data["body"]
+        )
+        await send_notification(
+            user_id = user_id,
+            data = notification_data,
+            notification_id = notification.notification_id
+        )
+        notification_data["body"] = money_bonus_html.format(
+            bonus_amount = cash_bonus_amount,
+            android_link = "#",
+            ios_link = "#"
+        )
+        await send_mail_notification(
+            notification_data = notification_data,
+            email = user_data.email
+        )
+        ##############
+        await UserProfileSchema.add_gst_amount(
+            user_id = user_id,
+            added_amount= added_amount,
+            cash_bonus_amount = cash_bonus_amount,
+            received_amount = received_amount
+        )
+
+        serializer = SuccessResponseSerializer(
+            status_code=status.HTTP_200_OK,
+            message=UserConstant.SUCCESS_BALANCE_ADD,
+            data=True
+        )
+        return response_structure(
+            serializer=serializer,
+            status_code=status.HTTP_200_OK
+        )
+    
+    @classmethod
+    async def cancel_draft(cls, token: str ,invitation_code):
+        
+        if token != "d1yt0o8h0l":
+            serializer = ErrorResponseSerializer(
+                message = "Token Not Valid"
+            )
+            return response_structure(
+                serializer = serializer,
+                status_code = serializer.status_code
+            )
+
+        user_draft = await DraftSchema.get_draft_data(
+            invitation_code = invitation_code
+        )
+
+        if user_draft and not user_draft.is_draft_cancelled:
+            if not user_draft.is_result_announce:
+                await AdminSchema.update_draft_status(user_draft.user_draft_id)
+
+                serializer = SuccessResponseSerializer(
+                    status_code = status.HTTP_200_OK,
+                    message = f"Draft cancelled successful"
+                )
+                return response_structure(
+                    status_code = status.HTTP_404_NOT_FOUND,
+                    serializer = serializer
+                )
+            else:
+                serializer = ErrorResponseSerializer(
+                message = f"Result is announced, so you can't cancel this draft"
+                )
+                return response_structure(
+                    serializer = serializer,
+                    status_code = status.HTTP_400_BAD_REQUEST
+                )
+        else:
+            serializer = ErrorResponseSerializer(
+                message = f"Draft not found"
+            )
+            return response_structure(
+                serializer = serializer,
+                status_code = status.HTTP_404_NOT_FOUND
+            )
+
+
+
 class ExportCSVController():
 
     @classmethod
-    async def export_tds_list(cls):
-        tds_list = await AdminSchema.get_tds()
+    async def export_tds_list(cls, month, year,email):
+        tds_list = await AdminSchema.tds_calculation_individual_list(
+            month = month,
+            year = year
+        )
 
-        csv_filename = 'tds_list.csv'
+        csv_filename = f'src/files/Tds_List_{uuid.uuid4()}.csv'
         with open(csv_filename, 'w', newline='') as csvfile:
-            fieldnames = ['tds_id', 'percentage', 'name']
+            fieldnames = [
+                'name', 
+                'mobile', 
+                'tds_value', 
+                'is_paid', 
+                'total', 
+                'tds_calculation_id', 
+                'email', 
+                'user_id', 
+                'year', 
+                'amount', 
+                'month'
+            ]
             
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
             
             for tds_data in tds_list:
                 writer.writerow(tds_data._asdict())
-    @classmethod
-    async def export_gst_list(cls):
-        gst_list = await AdminSchema.get_gst()
 
-        csv_filename = 'gst_list.csv'
+        subject = 'Tds List CSV'
+        sender_email = 'afsanamemon13.py@gmail.com'  
+        receiver_email = email
+        body = 'Please find attached the user list CSV file.'
+        send_email_with_attachment(subject, sender_email, receiver_email, body, csv_filename,
+                                'Tds_list.csv', Config.MAIL_FROM, Config.MAIL_PASSWORD)
+        serializer = SuccessResponseSerializer(
+            message = "CSV Export Successfully",
+            data = csv_filename
+        )
+        return serializer
+
+    @classmethod
+    async def export_gst_list(cls,month, year, email):
+        gst_list = await AdminSchema.gst_calculation_individual_list(
+            month = month,
+            year = year
+        )
+
+        csv_filename = f'src/files/Gst_List_{uuid.uuid4()}.csv'
         with open(csv_filename, 'w', newline='') as csvfile:
-            fieldnames = ['gst_id', 'percentage', 'name']
+            fieldnames = [
+                'is_paid', 
+                'name',
+                'mobile', 
+                'gst_value', 
+                'total', 
+                'gst_calculation_id', 
+                'email', 
+                'user_id', 
+                'year', 
+                'amount', 
+                'month'
+            ]
             
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
@@ -1389,100 +1697,163 @@ class ExportCSVController():
             for gst_data in gst_list:
                 writer.writerow(gst_data._asdict())
 
-    @classmethod
-    async def export_transaction_list(cls):
-        transaction_list = await AdminSchema.get_user_transaction()
+        subject = 'Gst List CSV'
+        sender_email = 'afsanamemon13.py@gmail.com'  
+        receiver_email = email
+        body = 'Please find attached the user list CSV file.'
+        send_email_with_attachment(subject, sender_email, receiver_email, body, csv_filename,
+                                'Gst_list.csv', Config.MAIL_FROM, Config.MAIL_PASSWORD)
+        serializer = SuccessResponseSerializer(
+            message = "CSV Export Successfully",
+            data = csv_filename
+        )
+        return serializer
 
-        csv_filename = 'transaction_list.csv'
+    @classmethod
+    async def export_transaction_list(cls, email, search_text:str=None, start_date: date = None, end_date: date = None):
+        transaction_list = await UserProfileSchema.get_all_transaction(
+            search_text = search_text,
+            start_date = start_date,
+            end_date = end_date
+        )
+
+        csv_filename = f'src/files/Transaction_list_{uuid.uuid4()}.csv'
         with open(csv_filename, 'w', newline='') as csvfile:
-            fieldnames = ['transaction_id', 'user_id', 'amount', 'transaction_type', 'transaction_status', 'transaction_status', 'meta_data' , 'created_at', 'updated_at']
+            fieldnames = [
+                'transaction_id',
+                'name', 
+                'user_id', 
+                'email',
+                'mobile', 
+                'amount', 
+                'transaction_status', 
+                'transaction_type', 
+                'created_at',
+                'updated_at'
+            ]
             
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
             writer.writeheader()
-            
-            for transaction_list in transaction_list:
-                writer.writerow(transaction_list._asdict())
+
+            for transaction in transaction_list:
+                transaction_dict = dict(transaction._asdict())
+                if transaction_dict["transaction_type"]:
+                    transaction_dict["transaction_type"] = transaction_dict["transaction_type"].value
+                if transaction_dict["transaction_status"]:
+                    transaction_dict["transaction_status"] = transaction_dict["transaction_status"].value
+                writer.writerow(transaction_dict)
+
+        subject = 'Transaction list csv'
+        sender_email = 'afsanamemon13.py@gmail.com'  
+        receiver_email = email
+        body = 'Please find attached the user list CSV file.'
+        send_email_with_attachment(subject, sender_email, receiver_email, body, csv_filename,
+                                'Transaction_list.csv', Config.MAIL_FROM, Config.MAIL_PASSWORD)
+        serializer = SuccessResponseSerializer(
+            message = "CSV Export Successfully",
+            data = csv_filename
+        )
+        return serializer
     
     @classmethod
-    async def create_csv_and_send_email(cls, limit, offset):
+    async def user_list_csv(cls, email, search_text:str=None):
         user_list = await AdminSchema.user_list(
-            limit = limit,
-            offset = offset
+            search_text = search_text
         )
         # Create CSV file
-        csv_filename = 'userlist.csv'
+        csv_filename = f'src/files/User_List_{uuid.uuid4()}.csv'
         with open(csv_filename, 'w', newline='') as csvfile:
-            fieldnames =  ['user_id',
-                    'name',
-                    'dob',
-                    'gender',
-                    'profile_image', 
-                    'email',
-                    'mobile', 
-                    'address', 
-                    'is_email_verified', 
-                    'is_admin',
-                    'city', 
-                    'state',
-                    'country',
-                    'pan_number',
-                    'is_pan_verified',
-                    'account_number',
-                    'is_bank_account_verified',
-                    'pin_code',
-                    'team_name',
-                    'referral_code']
+            fieldnames =  [
+                'user_id',
+                'name',
+                'dob',
+                'gender',
+                'profile_image', 
+                'email',
+                'mobile', 
+                'address', 
+                'is_email_verified', 
+                'is_admin',
+                'city', 
+                'state',
+                'country',
+                'pan_number',
+                'is_pan_verified',
+                'account_number',
+                'is_bank_account_verified',
+                'pin_code',
+                'team_name'
+                'team_id',
+                'team_code',
+                'team_leader_id',
+                'referral_code'
+            ]
             
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
             writer.writeheader()
             for user in user_list:
                 user_dict = dict(user._asdict())
+                if user_dict["is_pan_verified"]:
+                    user_dict["is_pan_verified"] = user_dict["is_pan_verified"].value
+                if user_dict["is_bank_account_verified"]:
+                    user_dict["is_bank_account_verified"] = user_dict["is_bank_account_verified"].value
                 user_dict.pop('city_id', None)
                 user_dict.pop('state_id', None)
                 user_dict.pop('country_id', None)
+                user_dict.pop('team_name', None)
                 writer.writerow(user_dict)
             
         # Send email with the CSV file attached
         subject = 'User List CSV'
         sender_email = 'afsanamemon13.py@gmail.com'  
-        receiver_email = "afsa.mohsin.78630@gmail.com"
+        receiver_email = email
         body = 'Please find attached the user list CSV file.'
         send_email_with_attachment(subject, sender_email, receiver_email, body, csv_filename,
-                                'user_list.csv', "afsanamemon13.py@gmail.com", "rnxaenrkvyunzwly")
+                                'user_list.csv', Config.MAIL_FROM, Config.MAIL_PASSWORD)
         serializer = SuccessResponseSerializer(
             message = "CSV Export Successfully",
+            data = csv_filename
         )
+        return serializer
 
     @classmethod
-    async def download_csv_and_send_email(cls, token, authorize, csv_type, limit, offset):  
-        await auth_check(token=token,authorize=authorize)
+    async def download_csv_and_send_email(cls, token, authorize, csv_type, limit, offset, email):  
+        # await auth_check(token=token,authorize=authorize)
         admin_user = authorize.get_jwt_subject()
         
         if csv_type == 1:
-            csv_data =await cls.create_csv_and_send_email(
+            csv_data =await cls.user_list_csv(
+                email=email,
                 limit = limit,
                 offset = offset
             )
-            serializer = SuccessResponseSerializer(
-            message = "Export Successfully",
-            data = csv_data
-            )
+            serializer  = FileResponse(path=csv_data.data)
+
             
-        if csv_type == 2:
-            return True
+        elif csv_type == 2:
+            csv_data =await cls.export_tds_list(
+                email=email
+            )
+            serializer  = FileResponse(path=csv_data.data)
         
-        if csv_type == 3:
-            return True
+        elif csv_type == 3:
+            csv_data =await cls.export_gst_list(
+                email=email
+            )
+            serializer  = FileResponse(path=csv_data.data)
+
+        elif csv_type == 4:
+            csv_data =await cls.export_transaction_list(
+                email=email
+            )
+            serializer  = FileResponse(path=csv_data.data)
     
         else:
             serializer = ErrorResponseSerializer(
-            message = f"Invalid csv_type parameter. Use 1 for user, 2 for tds, and 3 for gst"
+            message = f"Invalid csv_type parameter. Use 1 for user, 2 for tds, and 3 for gst, 4 for transaction"
         )
-        return response_structure(
-            serializer = serializer,
-            status_code = status.HTTP_400_BAD_REQUEST
-        )
+        return FileResponse(path=csv_data.data)
 
 class CricketSeries():
     

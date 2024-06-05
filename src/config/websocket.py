@@ -6,11 +6,11 @@ import time
 import random
 
 from src.services.contest.schema import DraftSchema
-from src.services.contest.serializer import LeaderboardResponseSerializer, MemberLeaderboardResponseSerializer, MemberResponseSerializer, PlayersResponseSerializer, TeamResponseSerializer
+from src.services.contest.serializer import LeaderboardResponseSerializer, MemberLeaderboardResponseSerializer, MemberResponseSerializer, PlayersResponseSerializer
 from src.services.cricket.schema import CricketMatchSchema
 from src.services.user.schema import UserProfileSchema
 from src.utils.entity_sports import EntitySportsLive
-from src.utils.response import WebsocketErrorResponseSerializer, WebsocketSuccessResponseSerializer, response_structure
+from src.utils.response import WebsocketErrorResponseSerializer, WebsocketSuccessResponseSerializer
 
 class ConnectionManager:
     def __init__(self):
@@ -382,9 +382,11 @@ class ConnectionManager:
                 team_data = await DraftSchema.get_team_data_with_id(
                     team_id = team
                 )
-                result["team"].append(
-                    TeamResponseSerializer(**(team_data._asdict())).name
-                )
+                if team_data:
+                    if not team_data.use_short_name:
+                        result["team"].append(team_data.fc_short_name)
+                    else:
+                        result["team"].append(team_data.short_name)
         else: # this is for the match
             match_data = await DraftSchema.match_series_team(
                 cricket_match_id = draft_data.draft_match_series_id
@@ -395,12 +397,14 @@ class ConnectionManager:
             team_data_b = await DraftSchema.get_team_data_with_id(
                 team_id = match_data.team_b
             )
-            result["team"].append(
-                TeamResponseSerializer(**(team_data_a._asdict())).name
-            )
-            result["team"].append(
-                TeamResponseSerializer(**(team_data_b._asdict())).name
-            )
+            if not team_data_a.use_short_name:
+                result["team"].append(team_data_a.fc_short_name)
+            else:
+                result["team"].append(team_data_a.short_name)
+            if not team_data_b.use_short_name:
+                result["team"].append(team_data_b.fc_short_name)
+            else:
+                result["team"].append(team_data_b.short_name)
         return WebsocketSuccessResponseSerializer(
             message = "Static Data",
             data = result,
@@ -576,6 +580,16 @@ class ConnectionManager:
                     player_response = PlayersResponseSerializer(
                         **(player_data._asdict())
                     )
+
+                    team_name = await DraftSchema.get_team_name_with_series_id(
+                        player_id = player,
+                        series_id = match_player.series_id
+                    )
+                    if not team_name.use_short_name:
+                        player_response.team = team_name.fc_short_name
+                    else:
+                        player_response.team = team_name.short_name
+
                     if player_data.player_id in selected_players:
                         player_response.is_selected = True
                     all_players.append(player_response)
@@ -586,6 +600,14 @@ class ConnectionManager:
                     player_response = PlayersResponseSerializer(
                         **(player_data._asdict())
                     )
+                    team_name = await DraftSchema.get_team_name_with_series_id(
+                        player_id = player,
+                        series_id = match_player.series_id
+                    )
+                    if not team_name.use_short_name:
+                        player_response.team = team_name.fc_short_name
+                    else:
+                        player_response.team = team_name.short_name
                     if player_data.player_id in selected_players:
                         player_response.is_selected = True
                     all_players.append(player_response)
@@ -602,6 +624,16 @@ class ConnectionManager:
                     player_response = PlayersResponseSerializer(
                         **(player_data._asdict())
                     )
+
+                    team_name = await DraftSchema.get_team_name_with_series_id(
+                        player_id = player,
+                        series_id = user_draft.draft_match_series_id
+                    )
+                    if not team_name.use_short_name:
+                        player_response.team = team_name.fc_short_name
+                    else:
+                        player_response.team = team_name.short_name
+
                     if player_data.player_id in selected_players:
                         player_response.is_selected = True
                     all_players.append(player_response)
@@ -640,6 +672,7 @@ class LeaderboardConnectionManager:
         draft_data = await DraftSchema.get_draft_data(
             user_draft_id = user_draft_id
         )
+        text_show = ""
         if draft_data.draft_for == DraftForEnum.MATCH:
             data = await CricketMatchSchema.get_matches(
                 match_id = draft_data.draft_match_series_id,
@@ -647,10 +680,19 @@ class LeaderboardConnectionManager:
                 offset=1
             )
         else: # this is for series
+            match_data = await CricketMatchSchema.get_matches(
+                match_id = draft_data.match_id_point[0],
+                limit = 10,
+                offset = 1
+            )
+            team_a_name = match_data.fc_short_name_a if not match_data.use_short_name_a else match_data.team_short_name_a
+            team_b_name = match_data.fc_short_name_b if not match_data.use_short_name_b else match_data.team_short_name_b
+            text_show = f"Please note points from Match {team_a_name} vs {team_b_name} on {match_data.match_start_time} IST till the final match of the series will be considered in this draft"
             data = await CricketMatchSchema.get_series(
                 series_id = draft_data.draft_match_series_id
             )
         leader_board = LeaderboardResponseSerializer(**(data._asdict()))
+        leader_board.text_show = text_show
         if not data.series_use_name:
             leader_board.series_name = data.series_fc_name
         if draft_data.draft_for == DraftForEnum.MATCH:

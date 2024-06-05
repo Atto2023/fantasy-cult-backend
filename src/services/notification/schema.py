@@ -102,15 +102,15 @@ class NotificationSchema():
             )
             await db.execute(data)
             try:
-                await db.commit()
                 logging.info(msg=f"Device token for user {user_id} updated successfully",
-                         extra={"custom_args": "ADD_UPDATE_DEVICE_TOKEN_OPERATION", 
-                                "user_id": user_id})
+                    extra={"custom_args": "ADD_UPDATE_DEVICE_TOKEN_OPERATION", 
+                        "user_id": user_id})
+                await db.commit()
             except Exception as e:
-                await db.rollback()
                 logging.error(msg=f"Failed to update device token for user {user_id}. Error: {e}",
-                          extra={"custom_args": "ADD_UPDATE_DEVICE_TOKEN_OPERATION",
-                                 "user_id": user_id})
+                    extra={"custom_args": "ADD_UPDATE_DEVICE_TOKEN_OPERATION",
+                            "user_id": user_id})
+                await db.rollback()
             return True
         else:
             user_device = UserDevice(
@@ -119,15 +119,15 @@ class NotificationSchema():
             )
             db.add(user_device)
             try:
-                await db.commit()
                 logging.info(msg=f"Device token for user {user_id} added successfully",
-                         extra={"custom_args": "ADD_UPDATE_DEVICE_TOKEN_OPERATION", 
-                                "user_id": user_id})
+                    extra={"custom_args": "ADD_UPDATE_DEVICE_TOKEN_OPERATION", 
+                        "user_id": user_id})
+                await db.commit()
             except Exception as e:
-                await db.rollback()
                 logging.error(msg=f"Failed to add device token for user {user_id}. Error: {e}",
-                          extra={"custom_args": "ADD_UPDATE_DEVICE_TOKEN_OPERATION",
-                                 "user_id": user_id})
+                    extra={"custom_args": "ADD_UPDATE_DEVICE_TOKEN_OPERATION",
+                            "user_id": user_id})
+                await db.rollback()
             return True
 
     @classmethod

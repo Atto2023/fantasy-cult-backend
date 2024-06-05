@@ -25,23 +25,23 @@ def init_app():
     async def shutdown():
         await db.close()
     
-    # @app.middleware("http")
-    # async def rollback_session_middleware(request, call_next):
-    #     response = None
-    #     try:
-    #         response = await call_next(request)
-    #     finally:
-    #         # Check if there was an exception and if the session is active
-    #         if response and response.status_code >= 500 and db._session.is_active:
-    #             await db._session.rollback()
-    #             await db._session.close()
-    #             db.init()
-    #         elif not response:
-    #             await db._session.rollback()
-    #             await db._session.close()
-    #             db.init()
+    @app.middleware("http")
+    async def rollback_session_middleware(request, call_next):
+        response = None
+        try:
+            response = await call_next(request)
+        finally:
+            # Check if there was an exception and if the session is active
+            if response and response.status_code >= 500 and db._session.is_active:
+                await db._session.rollback()
+                await db._session.close()
+                db.init()
+            elif not response:
+                await db._session.rollback()
+                await db._session.close()
+                db.init()
 
-    #     return response
+        return response
 
     # app.include_router(store_url.router)
     app.include_router(user.router, tags = ["Users"])

@@ -101,7 +101,10 @@ class DummyDataController:
                 value_dict = series
             )
 
-        return True
+        return response_structure(
+            serializer = SuccessResponseSerializer(),
+            status_code = status.HTTP_200_OK
+        )
 
 
     @classmethod
@@ -110,7 +113,10 @@ class DummyDataController:
         await cls.series_process_data(series_data_live)
         series_data_fixture = await EntitySports.cricket_series_data_fixture()
         await cls.series_process_data(series_data_fixture)
-        return True
+        return response_structure(
+            serializer = SuccessResponseSerializer(),
+            status_code = status.HTTP_200_OK
+        )
 
 
     @classmethod
@@ -201,7 +207,10 @@ class DummyDataController:
                 except Exception as e:
                     print(f"Match ID : {match.match_id}")
                     print(f"Exception in match point : {e}")
-        return True
+        return response_structure(
+            serializer = SuccessResponseSerializer(),
+            status_code = status.HTTP_200_OK
+        )
 
     @classmethod
     async def allocate_point(cls):

@@ -16,7 +16,7 @@ class MasterCity(Base):
     city_id = db.Column(UUID(as_uuid=True), primary_key=True,index=True,default=uuid.uuid4)
     state = db.Column(UUID(as_uuid=True),db.ForeignKey("master_state.state_id"))
     city = db.Column(db.String,nullable=True)
-    
+
     __table_args__ = (
         UniqueConstraint('state', 'city', name='unique_city'),
     )
@@ -26,7 +26,7 @@ class MasterState(Base):
     state_id  = db.Column(UUID(as_uuid=True), primary_key=True,index=True,default=uuid.uuid4)
     country = db.Column(UUID(as_uuid=True),db.ForeignKey ("master_country.country_id"))
     state = db.Column(db.String,nullable=True)
-    
+
     __table_args__ = (
         UniqueConstraint('country', 'state', name='unique_state'),
     )
@@ -368,4 +368,3 @@ class HomeScreen(Base):
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, server_default=func.now())
     updated_at = db.Column(db.DateTime, server_default=func.now(), onupdate=func.now())
-    

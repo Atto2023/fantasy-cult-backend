@@ -665,7 +665,7 @@ class UserProfileSchema():
             UserTransaction.transaction_type,
             UserTransaction.transaction_status,
             UserTransaction.created_at,
-            UserTransaction.meta_data
+            UserTransaction.meta_data,
         ).where(
             UserTransaction.user_id == user_id
         ).order_by(
@@ -754,13 +754,14 @@ class UserProfileSchema():
         return True
 
     @classmethod
-    async def get_all_transaction(cls, limit, offset, search_text:str=None, start_date: date = None, end_date: date = None):
+    async def get_all_transaction(cls, limit = None, offset = None, search_text:str=None, start_date: date = None, end_date: date = None):
         user_data = select(
             UserTransaction.transaction_id,
             UserTransaction.amount,
             UserTransaction.transaction_type,
             UserTransaction.transaction_status,
             UserTransaction.created_at,
+            UserTransaction.updated_at,
             User.user_id,
             User.name,
             User.email,
@@ -770,7 +771,14 @@ class UserProfileSchema():
             UserTransaction.user_id == User.user_id
         ).order_by(
             UserTransaction.created_at.desc()
-        ).limit(limit).offset(offset-1)
+        )
+
+        if limit and offset:
+            user_data = user_data.limit(
+                limit
+            ).offset(
+                offset-1
+            )
 
         if search_text:
             user_data = user_data.where(
@@ -790,7 +798,7 @@ class UserProfileSchema():
 
         if end_date:
             user_data = user_data.where(
-                UserTransaction.created_at <= end_date
+                UserTransaction.created_at <= (end_date + timedelta(days=1))
             )
         
         user_data = await db.execute(user_data)

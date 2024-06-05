@@ -35,7 +35,8 @@ from src.db.models import (
     CricketTeam,
     HomeScreen,
     CricketMatch,
-    UserTransaction
+    UserTransaction,
+    DraftForEnum
 )
 from src.services.admin.serializer import (
     AdminCreateDraftRequestSerializer, 
@@ -47,8 +48,9 @@ from src.services.admin.serializer import (
 )
 from src.db.models import ContestPlayers
 from src.services.admin.serializer import AdminCreateDraftRequestSerializer
-from src.services.contest.schema import DraftSchema
+from src.services.contest.schema import DraftSchema, CricketMatchSchema
 from src.utils.helper_functions import S3Config
+from datetime import datetime, timedelta, date
 
 class Settings(BaseModel):
     authjwt_secret_key: str = "secret"
@@ -62,7 +64,7 @@ Authorize : AuthJWT = Depends()
 class AdminSchema():
 
     @classmethod
-    async def user_list(cls, limit, offset,search_text:str=None):
+    async def user_list(cls, limit = None, offset = None,search_text:str=None):
         if search_text:
             sport_team = select(
                 User.user_id,
@@ -86,7 +88,8 @@ class AdminSchema():
                 BankVerification.account_number,
                 BankVerification.status.label("is_bank_account_verified"),
                 User.pin_code,
-                User.referral_code
+                User.referral_code,
+                User.team_name
             ).join(
                 MasterCity,
                 MasterCity.city_id == User.city,
@@ -110,11 +113,14 @@ class AdminSchema():
                     User.mobile.ilike(f"%{search_text}%"),
                     User.address.ilike(f"%{search_text}%"),
                 )
-            ).limit(
-                limit
-            ).offset(
-                offset-1
             )
+            
+            if limit and offset:
+                sport_team = sport_team.limit(
+                    limit
+                ).offset(
+                    offset-1
+                )
             sport_team = await db.execute(sport_team)
             return sport_team.all()
 
@@ -158,11 +164,13 @@ class AdminSchema():
             BankVerification,
             BankVerification.user_id == User.user_id,
             isouter = True
-        ).limit(
-            limit
-        ).offset(
-            offset-1
         )
+        if limit and offset:
+            sport_team = sport_team.limit(
+                limit
+            ).offset(
+                offset-1
+            )
         sport_team = await db.execute(sport_team)
         return sport_team.all()
 
@@ -216,6 +224,14 @@ class AdminSchema():
     
     @classmethod
     async def admin_create_draft(cls, request: AdminCreateDraftRequestSerializer, user_id):
+        if request.draft_for == DraftForEnum.SERIES:
+            remaining_matches = await CricketMatchSchema.get_matches_of_remaining_series(
+                cricket_series_id = request.draft_match_series_id
+            )
+            ist_time = datetime.now() + timedelta(hours=5, minutes=30)
+            match_id_point = [i.cricket_match_id for i in remaining_matches if i.match_start_time.date() > ist_time.date()]
+        else:
+            match_id_point = [request.draft_match_series_id]
         add_draft = UserDraft(
             user_id = user_id,
             league_name = request.league_name,
@@ -230,10 +246,12 @@ class AdminSchema():
             draft_match_series_id = request.draft_match_series_id,
             is_public = request.is_public,
             draft_starting_time = request.draft_starting_time,
-            is_draft_completed = False,
             number_of_round = request.number_of_round,
+            is_captain_allowed = request.is_captain_allowed,
             top_picks = request.top_picks,
-            player_selected = []
+            player_selected = [],
+            match_id_point = match_id_point,
+            is_draft_completed = False
         )
         db.add(add_draft)
         try:
@@ -785,3 +803,22 @@ class AdminSchema():
         user = await db.execute(user_data)
         return user.all()
     
+    @classmethod
+    async def update_draft_status(cls, user_draft_id):
+        update_query = (
+            update(
+                UserDraft
+            ).where(
+                UserDraft.user_draft_id == user_draft_id
+            ).values(
+                {
+                    "is_draft_cancelled": True,
+                    "is_draft_pushed": True
+                }
+            )
+        )
+        await db.execute(update_query)
+        try:
+            await db.commit()
+        except Exception:
+            await db.rollback()

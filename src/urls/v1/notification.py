@@ -33,3 +33,10 @@ async def add_user_device(device_token: constr(min_length=1), token: Request, au
         token=token,
         authorize=authorize
     )
+
+@router.get("/show_mark")
+async def show_mark(token: Request, authorize:AuthJWT=Depends()):
+    return await NotificationController.show_mark(
+        token=token,
+        authorize=authorize
+    )

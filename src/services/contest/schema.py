@@ -1,3 +1,4 @@
+from pydantic import UUID4
 from src.db.models import (
     ContestPlayers, 
     ContestStatusEnum, 
@@ -12,12 +13,13 @@ from src.db.models import (
     UserDraft
 )
 from sqlalchemy import(
-    and_, 
     distinct,
     or_, 
     select, 
     func, 
-    update
+    update,
+    join,
+    text
 )
 from src.db.database import db
 from src.services.contest.serializer import CreateDraftRequestSerializer
@@ -195,19 +197,12 @@ class DraftSchema:
             )
 
         if search_text:
-            if search_text.isdigit():
-                user_draft = user_draft.where(
-                    UserDraft.entry_amount.ilike(f"%{float(search_text)}%"),
-                    UserDraft.max_playing_user.ilike(f"%{float(search_text)}%"),
+            user_draft = user_draft.where(
+                or_(
+                    UserDraft.league_name.ilike(f"%{search_text}%"),
                     UserDraft.invitation_code.ilike(f"%{search_text}%"),
                 )
-            else:
-                user_draft = user_draft.where(
-                    or_(
-                        UserDraft.league_name.ilike(f"%{search_text}%"),
-                        UserDraft.invitation_code.ilike(f"%{search_text}%"),
-                    )
-                )
+            )
 
         if start_date:
             user_draft = user_draft.where(
@@ -216,7 +211,7 @@ class DraftSchema:
 
         if end_date:
             user_draft = user_draft.where(
-                UserDraft.created_at <= end_date
+                UserDraft.created_at <= (end_date + timedelta(days=1))
             )
 
         if limit and offset:
@@ -386,7 +381,8 @@ class DraftSchema:
         player_data = select(
             distinct(CricketPlayer.playing_role)
         ).where(
-            CricketPlayer.playing_role != "wkbat"
+            CricketPlayer.playing_role != "wkbat",
+            CricketPlayer.playing_role != ""
         )
 
         player_data = await db.execute(player_data)
@@ -396,9 +392,12 @@ class DraftSchema:
     async def get_team_data_with_id(cls, team_id):
         team_data = select(
             CricketTeam.cricket_team_id,
-            CricketTeam.name
+            CricketTeam.fc_short_name,
+            CricketTeam.use_short_name,
+            CricketTeam.short_name
         ).where(
-            CricketTeam.cricket_team_id == team_id
+            CricketTeam.cricket_team_id == team_id,
+            CricketTeam.short_name != "TBA"
         )
 
         team_data = await db.execute(team_data)
@@ -406,19 +405,42 @@ class DraftSchema:
 
     @classmethod
     async def get_my_contest(cls, user_id, contest_status, limit, offset):
-        query = select(
+        s_query = select(
             ContestPlayers.draft_id,
             UserDraft.draft_for,
-            UserDraft.draft_match_series_id
+            UserDraft.draft_match_series_id,
+            CricketMatch.match_start_time,
+            UserDraft.match_id_point[1].label("match_id")
         ).join(
             UserDraft,
             UserDraft.user_draft_id == ContestPlayers.draft_id
+        ).join(
+            CricketMatch,
+            CricketMatch.cricket_match_id == UserDraft.match_id_point[1]
         ).where(
             ContestPlayers.user_id == user_id,
-            ContestPlayers.status == contest_status
+            ContestPlayers.status == contest_status,
+            UserDraft.is_draft_cancelled == False
+        ).order_by(
+            UserDraft.draft_match_series_id
         ).distinct(
             UserDraft.draft_match_series_id
-        ).limit(limit).offset(offset-1)
+        ).subquery()
+
+        if contest_status == ContestStatusEnum.COMPLETED:
+            query = select(
+                s_query
+            ).order_by(
+                s_query.c.match_start_time.desc()
+            )
+        else:
+            query = select(
+                s_query
+            ).order_by(
+                s_query.c.match_start_time.asc()
+            )
+
+        query = query.limit(limit).offset(offset-1)
 
         query = await db.execute(query)
         return query.all()
@@ -764,3 +786,24 @@ class DraftSchema:
 
         data = await db.execute(data)
         return data.all()
+
+    @classmethod
+    async def get_team_name_with_series_id(cls, player_id, series_id):
+        team_data = select(
+            CricketSeriesSquad.team_id,
+            CricketTeam.use_short_name,
+            CricketTeam.fc_short_name,
+            CricketTeam.short_name,
+            CricketTeam.fc_logo_url,
+            CricketTeam.use_logo_url,
+            CricketTeam.logo_url
+        ).join(
+            CricketTeam,
+            CricketTeam.cricket_team_id == CricketSeriesSquad.team_id
+        ).where(
+            CricketSeriesSquad.series_id == series_id,
+            text(f"UUID('{player_id}')=ANY(cricket_series_squad.player_id)")
+        )
+        team_data = await db.execute(team_data)
+        team_data = team_data.one_or_none()
+        return team_data

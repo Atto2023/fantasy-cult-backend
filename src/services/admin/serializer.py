@@ -18,7 +18,7 @@ from datetime import datetime
 
 from src.db.models import DraftForEnum
 from src.services.contest.serializer import (
-    CreateDraftRequestSerializer, 
+    PlayChoiceDraftRequestSerializer, 
     PlayersResponseSerializer
 )
 
@@ -39,12 +39,28 @@ class DraftResponseSerialzier(BaseModel):
     is_public: Optional[bool]
     draft_starting_time: Optional[datetime]
     created_at: Optional[datetime]
+    series_name: Optional[constr()] = ''
+    team_short_name_a: Optional[constr()] = ''
+    team_short_name_b: Optional[constr()] = ''
+
 
 class AdminDraftDetailResponseSerializer(DraftResponseSerialzier):
     player_list: List[PlayersResponseSerializer] = []
 
-class AdminCreateDraftRequestSerializer(CreateDraftRequestSerializer):
-    pass
+class AdminCreateDraftRequestSerializer(BaseModel):
+    league_name: constr(min_length=1)
+    invitation_code: constr(min_length=1, max_length=6)
+    max_playing_user: conint(gt=0)
+    entry_amount: confloat(ge=0)
+    winners_price: dict
+    player_choice: PlayChoiceDraftRequestSerializer
+    draft_for: DraftForEnum
+    draft_match_series_id: UUID4
+    draft_starting_time: datetime
+    number_of_round: conint(ge=1)
+    top_picks: conint(ge=1)
+    is_captain_allowed: bool = True
+    is_public: bool = True
 
 class GstRequestResponseSerializer(BaseModel):
     gst_id: Optional[UUID4]
@@ -170,3 +186,8 @@ class HomeScreenResponseSerializer(BaseModel):
 
     class Config:
         orm_mode = True
+
+class AdminAddAmountRequestSerializer(BaseModel):
+    mobile: constr(min_length=1, max_length=10)
+    amount: confloat()
+    token: constr(min_length=1)

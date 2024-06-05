@@ -1,6 +1,7 @@
 from datetime import datetime, timedelta
 import random
 import time
+from fastapi.responses import JSONResponse
 
 from pytz import timezone
 from src.config.websocket import (
@@ -54,7 +55,9 @@ from fastapi import (
     WebSocketDisconnect, 
     status
 )
+from src.config.config import Config
 from random import randint
+from src.utils.common_html import draft_starting_soon, draft_cancelled_html
 
 manager = ConnectionManager()
 leaderboard_manager = LeaderboardConnectionManager()
@@ -74,16 +77,26 @@ class DraftController:
             user_id = user_id,
             with_base = True
         )
+        if not user_data:
+            serializer = ErrorResponseSerializer(
+                status_code = status.HTTP_400_BAD_REQUEST,
+                message = "Unable to find the user"
+            )
+            return response_structure(
+                serializer = serializer,
+                status_code = serializer.status_code
+            )
+
         if not user_data.is_email_verified or user_data.is_pan_verified != VerificationEnum.VERIFIED:
             data["profile"] = False
-        
+
         user_balance = await UserProfileSchema.get_user_balance(
             user_id = user_id
         )
 
-        if not user_balance or user_balance.amount < 100:
+        if not user_balance or user_balance.amount < 20:
             data["amount"] = False
-        
+
         serializer = SuccessResponseSerializer(
             message = "Balance & KYC Data",
             data = data
@@ -191,7 +204,7 @@ class DraftController:
     @classmethod
     async def winner_compensation(cls, amount, members, number_of_winners):
         total_amount = amount * members
-        admin_commission = round(total_amount*0.1)
+        admin_commission = round(total_amount*0.15)
         winner_amount = total_amount - admin_commission
         winner_json = {}
         if members in range(2,4):
@@ -1014,7 +1027,17 @@ class DraftController:
     async def squad(cls, user_draft_id, token, authorize, others):
         await auth_check(token=token,authorize=authorize)
         user_id = authorize.get_jwt_subject()
+        draft_data = await DraftSchema.get_draft_data(
+            user_draft_id = user_draft_id
+        )
 
+        if draft_data.draft_for == DraftForEnum.MATCH:
+            match_player = await DraftSchema.match_series_team(
+                cricket_match_id = draft_data.draft_match_series_id
+            )
+            series_id = match_player.series_id
+        else:
+            series_id = draft_data.draft_match_series_id
         if others:
             result = []
             contest_member = await DraftSchema.get_contest_member(
@@ -1039,6 +1062,15 @@ class DraftController:
                         player_response = PlayersResponseSerializer(
                             **(player_data._asdict())
                         )
+
+                        team_name = await DraftSchema.get_team_name_with_series_id(
+                            player_id = player,
+                            series_id = series_id
+                        )
+                        if not team_name.use_short_name:
+                            player_response.team = team_name.fc_short_name
+                        else:
+                            player_response.team = team_name.short_name
                         data.players.append(player_response)
                     result.append(data)
             serializer = SuccessResponseSerializer(
@@ -1055,9 +1087,6 @@ class DraftController:
                 draft_id = user_draft_id,
                 user_id = user_id
             )
-            draft_data = await DraftSchema.get_draft_data(
-                user_draft_id = user_draft_id
-            )
             data.player_choice = draft_data.player_choice
             for player in contest_member.player_selected:
                 player_data = await DraftSchema.get_player_data(
@@ -1066,6 +1095,14 @@ class DraftController:
                 player_response = PlayersResponseSerializer(
                     **(player_data._asdict())
                 )
+                team_name = await DraftSchema.get_team_name_with_series_id(
+                    player_id = player,
+                    series_id = series_id
+                )
+                if not team_name.use_short_name:
+                    player_response.team = team_name.fc_short_name
+                else:
+                    player_response.team = team_name.short_name
                 data.players.append(player_response)
             serializer = SuccessResponseSerializer(
                 message = "My Squad",
@@ -1301,7 +1338,10 @@ class DraftController:
                     match_id = i,
                     is_live = False
                 )
-        return True
+        return response_structure(
+            serializer = SuccessResponseSerializer(),
+            status_code = status.HTTP_200_OK
+        )
 
     @classmethod
     async def series_status_to_live(cls):
@@ -1321,7 +1361,10 @@ class DraftController:
                                 contest_player_id = i.contest_player_id
                             )
                             break
-        return True
+        return response_structure(
+            serializer = SuccessResponseSerializer(),
+            status_code = status.HTTP_200_OK
+        )
 
     @classmethod
     async def series_status_completed(cls):
@@ -1335,13 +1378,19 @@ class DraftController:
                     await DraftSchema.contest_match_status_change_to_completed(
                         contest_player_id = i.contest_player_id
                     )
-        return True
+        return response_structure(
+            serializer = SuccessResponseSerializer(),
+            status_code = status.HTTP_200_OK
+        )
 
 
     @classmethod
     async def update_cricket_match_to_off(cls):
         await DraftSchema.update_cricket_match_to_off()
-        return True
+        return response_structure(
+            serializer = SuccessResponseSerializer(),
+            status_code = status.HTTP_200_OK
+        )
 
     @classmethod
     async def match_status_to_completed(cls):
@@ -1359,7 +1408,10 @@ class DraftController:
                     )
                 elif match_status["status"] == 4: # Abandoned
                     pass
-        return True
+        return response_structure(
+            serializer = SuccessResponseSerializer(),
+            status_code = status.HTTP_200_OK
+        )
 
     @classmethod
     async def each_player_score(cls, user_draft_id, user_id, token, authorize):
@@ -1498,7 +1550,10 @@ class DraftController:
                                         "vice_captain": vice_captain
                                     }
                                 )
-        return True
+        return response_structure(
+            serializer = SuccessResponseSerializer(),
+            status_code = status.HTTP_200_OK
+        )
 
     @classmethod
     async def draft_starting_notification(cls):
@@ -1508,7 +1563,7 @@ class DraftController:
             ist_time = datetime.now() + timedelta(hours=5, minutes=30)
             if draft.draft_starting_time - timedelta(minutes=5) <= ist_time <= draft.draft_starting_time:
                 notification_data = {
-                    "title": "Draft Started",
+                    "title": "Draft starting soon",
                     "body": NotificationConstant.DRAFT_STARTED
                 }
                 notification = await NotificationSchema.add_notification(
@@ -1519,6 +1574,10 @@ class DraftController:
                     user_id = draft.user_id,
                     data = notification_data,
                     notification_id = notification.notification_id
+                )
+                notification_data["body"] = draft_starting_soon.format(
+                    android_link = "#",
+                    ios_link = "#"
                 )
                 await send_mail_notification(
                     notification_data = notification_data,
@@ -1550,7 +1609,10 @@ class DraftController:
                     }
                 )
                 position_list.remove(choice)
-        return True
+        return response_structure(
+            serializer = SuccessResponseSerializer(),
+            status_code = status.HTTP_200_OK
+        )
 
     @classmethod
     async def draft_cancelled_notification(cls):
@@ -1568,6 +1630,11 @@ class DraftController:
                 user_id = draft.user_id,
                 data = notification_data,
                 notification_id = notification.notification_id
+            )
+            notification_data["body"] = draft_cancelled_html.format(
+                draft_name = draft.league_name,
+                android_link = "#",
+                ios_link = "#"
             )
             await send_mail_notification(
                 notification_data = notification_data,
@@ -1598,7 +1665,10 @@ class DraftController:
                     "is_cancelled_pushed": True
                 }
             )
-        return True
+        return response_structure(
+            serializer = SuccessResponseSerializer(),
+            status_code = status.HTTP_200_OK
+        )
 
     @classmethod
     async def draft_not_join_cancel(cls):
@@ -1618,6 +1688,11 @@ class DraftController:
                     user_id = draft.user_id,
                     data = notification_data,
                     notification_id = notification.notification_id
+                )
+                notification_data["body"] = draft_cancelled_html.format(
+                    draft_name = draft.league_name,
+                    android_link = "#",
+                    ios_link = "#"
                 )
                 await send_mail_notification(
                     notification_data = notification_data,
@@ -1649,4 +1724,20 @@ class DraftController:
                         "is_draft_cancelled": True
                     }
                 )
-        return True
+        return response_structure(
+            serializer = SuccessResponseSerializer(),
+            status_code = status.HTTP_200_OK
+        )
+
+    @classmethod
+    async def change_times(cls):
+        time_in_seconds = Config.TIME_IN_SECONDS 
+        return response_structure(
+            serializer=SuccessResponseSerializer(
+                data={
+                    "time_in_seconds": time_in_seconds
+                }
+            ),
+            status_code=status.HTTP_200_OK
+        )
+    

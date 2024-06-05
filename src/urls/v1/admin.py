@@ -7,7 +7,9 @@ from typing import Optional
 from fastapi_jwt_auth import AuthJWT
 from pydantic import (
     UUID4, 
-    conint
+    conint,
+    EmailStr,
+    constr
 )
 from src.db.models import (
     BankVerificationEnum, 
@@ -24,7 +26,8 @@ from src.services.admin.serializer import (
     TdsRequestResponseSerializer, 
     DiscountRequestResponseSerializer, 
     CricketSeriesRequestSerialzier, 
-    CricketTeamRequestSerialzier
+    CricketTeamRequestSerialzier,
+    AdminAddAmountRequestSerializer
 )
 from src.services.contest.serializer import WinningDistributionRequestSerializer
 
@@ -63,14 +66,17 @@ async def refresh_token(authorize: AuthJWT = Depends()):
 ####################################### User Data #########################################################
 
 @router.get("/user_list")
-async def user_list(token:Request, authorize:AuthJWT=Depends(), limit: conint(ge=1) = 10, offset: conint(ge=1) = 1,search_text:str=None):
+async def user_list(token:Request, authorize:AuthJWT=Depends(), limit: conint(ge=1) = 10, offset: conint(ge=1) = 1,search_text:str=None, email: Optional[EmailStr] = None, is_export: Optional[bool] = None):
     return await AdminController.user_list(
         token = token,
         authorize = authorize,
         limit = limit,
         offset = offset,
-        search_text=search_text
+        search_text = search_text,
+        email = email,
+        is_export = is_export
     )
+
 
 @router.get("/profile")
 async def get_profile(user_id: UUID4, token:Request, authorize:AuthJWT=Depends()):
@@ -98,6 +104,12 @@ async def bank_get(user_id: UUID4, token:Request, authorize:AuthJWT=Depends()):
 
 ######################################## Amount #############################################################
 
+@router.post("/amount")
+async def add_amount(request: AdminAddAmountRequestSerializer):
+    return await AdminController.add_amount(
+        request = request
+    )
+
 @router.get("/amount")
 async def get_amount(user_id: UUID4, token:Request, authorize:AuthJWT=Depends()):
     return await AdminController.get_amount(
@@ -107,14 +119,14 @@ async def get_amount(user_id: UUID4, token:Request, authorize:AuthJWT=Depends())
     )
 
 @router.get("/transaction")
-async def get_transaction(user_id: UUID4, token:Request, authorize:AuthJWT=Depends(), limit: conint(ge=1) = 10, offset: conint(ge=1) = 1, search_text:str=None):
+async def get_transaction(user_id: UUID4, token:Request, authorize:AuthJWT=Depends(), limit: conint(ge=1) = 10, offset: conint(ge=1) = 1, search_text:str=None,):
     return await AdminController.get_transaction(
         user_id = user_id,
         token = token,
         authorize=authorize,
         limit = limit,
         offset = offset,
-        search_text=search_text
+        search_text=search_text,
     )
 
 
@@ -220,12 +232,14 @@ async def gst_calculation_list(token: Request, year:conint(), authorize:AuthJWT=
     )
     
 @router.get("/get_gst_individual")
-async def gst_list(token: Request, year:conint(), month:conint(), authorize:AuthJWT=Depends()):
+async def gst_list(token: Request, year:conint(), month:conint(), authorize:AuthJWT=Depends(), email: Optional[EmailStr] = None, is_export: Optional[bool] = None):
     return await AdminController.get_gst_individual(
         token = token,
         authorize = authorize,
         year = year,
-        month = month
+        month = month,
+        email = email,
+        is_export = is_export
     )
     
 @router.get("/gst_pay")
@@ -265,7 +279,7 @@ async def change_series_status(token: Request, is_live: Optional[bool], authoriz
     )
 
 @router.get("/all_transaction")
-async def get_transaction(token:Request, authorize:AuthJWT=Depends(), limit: conint(ge=1) = 10, offset: conint(ge=1) = 1, search_text:str=None, start_date: date = None, end_date: date = None):
+async def get_transaction(token:Request, authorize:AuthJWT=Depends(), limit: conint(ge=1) = 10, offset: conint(ge=1) = 1, search_text:str=None, start_date: date = None, end_date: date = None, email: Optional[EmailStr] = None, is_export: Optional[bool] = None):
     return await AdminController.get_all_transaction(
         token = token,
         authorize=authorize,
@@ -274,33 +288,36 @@ async def get_transaction(token:Request, authorize:AuthJWT=Depends(), limit: con
         search_text = search_text,
         start_date = start_date,
         end_date = end_date,
+        email = email,
+        is_export = is_export
     )
 
 @router.get("/user_list_csv")
 async def create_csv_and_send_email(limit: conint(ge=1)=10 ,offset: conint(ge=1)=1):
-    return await ExportCSVController.create_csv_and_send_email(
+    return await ExportCSVController.user_list_csv(
         limit = limit,
         offset = offset
     )
 
 @router.get("/tds_list_csv")
-async def create_csv_and_send_email(limit: conint(ge=1)=10 ,offset: conint(ge=1)=1):
+async def create_csv_and_send_email():
     return await ExportCSVController.export_tds_list()
 
 @router.get("/gst_list_csv")
-async def create_csv_and_send_email(limit: conint(ge=1)=10 ,offset: conint(ge=1)=1):
+async def create_csv_and_send_email():
     return await ExportCSVController.export_gst_list()
 
 @router.get("/transaction_list_csv")
-async def create_csv_and_send_email(limit: conint(ge=1)=10 ,offset: conint(ge=1)=1):
+async def create_csv_and_send_email():
     return await ExportCSVController.export_transaction_list()
     
 @router.get("/download_csv")
-async def download_csv_and_send_email(token: Request, csv_type:Optional[conint(ge=0)] = None, limit: conint(ge=1)=10 ,offset: conint(ge=1)=1, authorize: AuthJWT=Depends()):
+async def download_csv_and_send_email(token: Request,email:EmailStr, csv_type:Optional[conint(ge=0)] = None, limit: conint(ge=1)=10 ,offset: conint(ge=1)=1, authorize: AuthJWT=Depends()):
     return await ExportCSVController.download_csv_and_send_email(
         token = token,
         authorize = authorize,
         csv_type = csv_type,
+        email = email,
         limit = limit,
         offset = offset
     )   
@@ -336,12 +353,14 @@ async def tds_calculation_list(token: Request, year:conint(), authorize:AuthJWT=
     )
     
 @router.get("/tds_gst_individual")
-async def tds_list(token: Request, year:conint(), month:conint(), authorize:AuthJWT=Depends()):
+async def tds_list(token: Request, year:conint(), month:conint(), authorize:AuthJWT=Depends(), email: Optional[EmailStr] = None, is_export: Optional[bool] = None):
     return await AdminController.get_tds_individual(
         token = token,
         authorize = authorize,
         year = year,
-        month = month
+        month = month,
+        email = email,
+        is_export = is_export
     )
 
 @router.get("/tds_pay")
@@ -485,4 +504,11 @@ async def delete_home_screen(token:Request,homescreen_id:UUID4,authorize:AuthJWT
         token=token,
         authorize=authorize,
         homescreen_id = homescreen_id
+    )
+
+@router.get("/cancel_draft")
+async def cancel_draft(token: str,invitation_code: constr()):
+    return await AdminController.cancel_draft(
+        token = token,
+        invitation_code = invitation_code
     )

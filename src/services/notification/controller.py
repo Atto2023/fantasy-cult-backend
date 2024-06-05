@@ -74,12 +74,43 @@ class NotificationController:
             data={}
         )
         logging.info(
-                    msg="Device Added Successfully",
-                    extra={"custom_args": "GET-notification/device",
-                    "user_id":user_id
-                }
+                msg="Device Added Successfully",
+                extra={"custom_args": "GET-notification/device",
+                "user_id":user_id
+            }
         )
         return response_structure(
             serializer=serializer,
             status_code=status.HTTP_200_OK
+        )
+
+    @classmethod
+    async def show_mark(cls, token, authorize):
+        await auth_check(authorize=authorize, token=token)
+        user_id = authorize.get_jwt_subject()
+
+        unread_count = await NotificationSchema.get_user_notification_count(
+            user_id = user_id
+        )
+
+        if unread_count <= 0:
+            show_mark = False
+        else:
+            show_mark = True
+
+        serializer = SuccessResponseSerializer(
+            message = "Mark Response",
+            data = {
+                "show_mark": show_mark
+            }
+        )
+        logging.info(
+                msg="unRead All Notification",
+                extra={"custom_args": "GET-notification/unread",
+                "user_id":user_id
+            }
+        )
+        return response_structure(
+            serializer = serializer,
+            status_code = status.HTTP_200_OK
         )
